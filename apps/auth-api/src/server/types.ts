@@ -205,12 +205,13 @@ export interface ContactMessageDelivery {
 
 export type EmailVerificationResult =
   | { status: "verified"; session: { sessionToken: string; user: AuthUser }; created: boolean }
-  | { status: "invalid" | "expired" | "too_many_attempts" };
+  | { status: "invalid" | "expired" | "too_many_attempts" | "recipient_conflict" };
 
 export type EmailChallengeDeliveryState = "pending" | "sent" | "failed";
 
 export interface EmailChallengeRecord {
   email: string;
+  recipientEmail: string;
   createdAt: number;
   expiresAt: number;
   consumedAt: number | null;
@@ -225,10 +226,12 @@ export interface AuthRepository {
   ): Effect.Effect<AccountSession[], AuthStoreError>;
   revokeAccountSession(userId: string, sessionId: string, now: number): Effect.Effect<boolean, AuthStoreError>;
   latestEmailChallengeAt(email: string): Effect.Effect<number | null, AuthStoreError>;
+  isEmailSignInRecipientAllowed(email: string, recipientEmail: string): Effect.Effect<boolean, AuthStoreError>;
   findEmailChallenge(idHash: string): Effect.Effect<EmailChallengeRecord | null, AuthStoreError>;
   createEmailChallenge(input: {
     idHash: string;
     email: string;
+    recipientEmail: string;
     codeHash: string;
     sourceIpHash: string;
     createdAt: number;

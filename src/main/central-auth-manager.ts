@@ -126,6 +126,7 @@ const DEFINITIVE_EMAIL_CODE_REQUEST_FAILURES = new Set([
   "email_delivery_failed",
   "email_delivery_rate_limited",
   "idempotency_conflict",
+  "email_recipient_conflict",
   "idempotency_key_completed",
   "invalid_email",
   "invalid_idempotency_key",
@@ -1394,12 +1395,11 @@ export class CentralAuthManager extends EventEmitter<CentralAuthEvents> {
   readonly requestEmailCode = Effect.fn("CentralAuth.requestEmailCode")(
     function* (this: CentralAuthManager, email: string) {
       const address = email.trim();
-      const normalizedEmail = address.toLowerCase();
       const existingRequest = this.#emailCodeRequest;
-      if (existingRequest?.email.toLowerCase() === normalizedEmail && existingRequest.pending)
+      if (existingRequest?.email === address && existingRequest.pending)
         return yield* Deferred.await(existingRequest.pending);
       const request: EmailCodeRequest =
-        existingRequest?.email.toLowerCase() === normalizedEmail
+        existingRequest?.email === address
           ? existingRequest
           : { email: address, idempotencyKey: randomUUID(), pending: null };
       this.#emailCodeRequest = request;

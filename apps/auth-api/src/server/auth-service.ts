@@ -9,6 +9,7 @@ import {
   ONE_TIME_CODE_LENGTH,
   validateProfileName,
 } from "@openbot/contracts/validation";
+import { sourceText } from "@openbot/i18n/source";
 import { Context, Effect, Layer, Result, Schema } from "effect";
 import { type AccountAnalytics, type AccountSurface, NO_ACCOUNT_ANALYTICS } from "./account-analytics";
 import type { AccountAttribution } from "./account-attribution";
@@ -120,6 +121,7 @@ export class AuthService {
         );
       }
       const email = yield* authValidate(() => normalizeEmail(emailInput));
+      const recipientEmail = emailInput.trim();
       const now = dependencies.now();
       if (idempotencyKey !== undefined && !isUuidV4(idempotencyKey)) {
         return yield* new AuthServiceError(
@@ -132,7 +134,7 @@ export class AuthService {
       const challengeHash = yield* sha256(challengeId);
       if (idempotencyKey) {
         const existing = yield* dependencies.repository.findEmailChallenge(challengeHash);
-        if (existing) return yield* this.#replayEmailSignIn(existing, email, challengeId, now);
+        if (existing) return yield* this.#replayEmailSignIn(existing, email, recipientEmail, challengeId, now);
       }
 
       yield* this.#enforceRateLimit(`start:email:${email}`, 5, now);
@@ -140,7 +142,7 @@ export class AuthService {
 
       if (idempotencyKey) {
         const existing = yield* dependencies.repository.findEmailChallenge(challengeHash);
-        if (existing) return yield* this.#replayEmailSignIn(existing, email, challengeId, now);
+        if (existing) return yield* this.#replayEmailSignIn(existing, email, recipientEmail, challengeId, now);
       }
 
       const latestChallenge = yield* dependencies.repository.latestEmailChallengeAt(email);
@@ -153,6 +155,9 @@ export class AuthService {
           retryAfterSeconds,
         );
       }
+      if (!(yield* dependencies.repository.isEmailSignInRecipientAllowed(email, recipientEmail))) {
+        return yield* new AuthServiceError(409, "email_recipient_conflict", sourceText("error.auth.codeNotSent"));
+      }
 
       const code = dependencies.exposeDevelopmentCode
         ? yield* developmentOneTimeCode(challengeId)
@@ -163,6 +168,7 @@ export class AuthService {
       const created = yield* dependencies.repository.createEmailChallenge({
         idHash: challengeHash,
         email,
+        recipientEmail,
         codeHash,
         sourceIpHash,
         createdAt: now,
@@ -172,13 +178,13 @@ export class AuthService {
       if (!created) {
         const existing = yield* dependencies.repository.findEmailChallenge(challengeHash);
         if (!existing) return yield* new AuthOperationError({ message: "Account operation failed." });
-        return yield* this.#replayEmailSignIn(existing, email, challengeId, now);
+        return yield* this.#replayEmailSignIn(existing, email, recipientEmail, challengeId, now);
       }
       const delivery = dependencies.delivery;
-      // Keep the canonical email for account identity, but preserve the recipient's local-part case.
+      // Account lookup stays canonical; verification binds it to this exact recipient.
       const deliveryResult = yield* Effect.result(
         delivery
-          ? delivery.send({ email: emailInput.trim(), code, expiresAt }).pipe(Effect.mapError(safeDeliveryError))
+          ? delivery.send({ email: recipientEmail, code, expiresAt }).pipe(Effect.mapError(safeDeliveryError))
           : Effect.void,
       );
       if (Result.isFailure(deliveryResult)) {
@@ -215,11 +221,12 @@ export class AuthService {
     this: AuthService,
     challenge: EmailChallengeRecord,
     email: string,
+    recipientEmail: string,
     challengeId: string,
     now: number,
   ): Effect.fn.Return<EmailSignInStart, AuthWorkflowFailure, AuthDependencies> {
     const dependencies = yield* AuthDependencies;
-    if (challenge.email !== email) {
+    if (challenge.email !== email || challenge.recipientEmail !== recipientEmail) {
       return yield* new AuthServiceError(
         409,
         "idempotency_conflict",
@@ -952,6 +959,9 @@ function verificationResult(result: EmailVerificationResult): {
   user: AuthUser;
 } {
   if (result.status === "verified") return result.session;
+  if (result.status === "recipient_conflict") {
+    throw new AuthServiceError(409, "email_recipient_conflict", sourceText("error.auth.codeNotSent"));
+  }
   if (result.status === "too_many_attempts") {
     throw new AuthServiceError(429, "too_many_code_attempts", "Too many incorrect codes. Request a new code.");
   }

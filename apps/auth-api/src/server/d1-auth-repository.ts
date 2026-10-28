@@ -25,6 +25,7 @@ interface AuthenticatedUserRow extends UserRow {
 
 interface ChallengeRow {
   email: string;
+  recipient_email: string | null;
   code_hash: string;
   expires_at: number;
   failed_attempts: number;
@@ -81,6 +82,20 @@ export class D1AuthRepository implements AuthRepository {
     (operation) => operation.pipe(Effect.provide(this.#layer)),
   ).bind(this);
 
+  readonly isEmailSignInRecipientAllowed = Effect.fn("D1AuthRepository.isEmailSignInRecipientAllowed")(
+    function* (this: D1AuthRepository, email: string, recipientEmail: string) {
+      const database = yield* AuthDatabase;
+      const user = yield* storeCall(() =>
+        database
+          .prepare("SELECT identity_key FROM users WHERE email = ?")
+          .bind(email)
+          .first<{ identity_key: string }>(),
+      );
+      return !user || recipientMatchesUser(user.identity_key, email, recipientEmail);
+    },
+    (operation) => operation.pipe(Effect.provide(this.#layer)),
+  ).bind(this);
+
   readonly findEmailChallenge = Effect.fn("D1AuthRepository.findEmailChallenge")(
     function* (
       this: D1AuthRepository,
@@ -90,12 +105,13 @@ export class D1AuthRepository implements AuthRepository {
       const row = yield* storeCall(() =>
         database
           .prepare(
-            `SELECT email, created_at, expires_at, consumed_at, delivery_state
+            `SELECT email, recipient_email, created_at, expires_at, consumed_at, delivery_state
          FROM email_login_challenges WHERE id_hash = ?`,
           )
           .bind(idHash)
           .first<{
             email: string;
+            recipient_email: string | null;
             created_at: number;
             expires_at: number;
             consumed_at: number | null;
@@ -105,6 +121,7 @@ export class D1AuthRepository implements AuthRepository {
       return row
         ? {
             email: row.email,
+            recipientEmail: row.recipient_email ?? row.email,
             createdAt: row.created_at,
             expiresAt: row.expires_at,
             consumedAt: row.consumed_at,
@@ -121,6 +138,7 @@ export class D1AuthRepository implements AuthRepository {
       input: {
         idHash: string;
         email: string;
+        recipientEmail: string;
         codeHash: string;
         sourceIpHash: string;
         createdAt: number;
@@ -133,13 +151,14 @@ export class D1AuthRepository implements AuthRepository {
         database
           .prepare(
             `INSERT INTO email_login_challenges(
-          id_hash, email, code_hash, source_ip_hash, created_at, expires_at, max_attempts, delivery_state
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+          id_hash, email, recipient_email, code_hash, source_ip_hash, created_at, expires_at, max_attempts, delivery_state
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
         ON CONFLICT(id_hash) DO NOTHING`,
           )
           .bind(
             input.idHash,
             input.email,
+            input.recipientEmail,
             input.codeHash,
             input.sourceIpHash,
             input.createdAt,
@@ -200,7 +219,7 @@ export class D1AuthRepository implements AuthRepository {
       const challenge = yield* storeCall(() =>
         database
           .prepare(
-            `SELECT email, code_hash, expires_at, failed_attempts, max_attempts, consumed_at, delivery_state
+            `SELECT email, recipient_email, code_hash, expires_at, failed_attempts, max_attempts, consumed_at, delivery_state
          FROM email_login_challenges WHERE id_hash = ?`,
           )
           .bind(input.idHash)
@@ -241,7 +260,13 @@ export class D1AuthRepository implements AuthRepository {
       );
       if (consumed.meta.changes !== 1) return { status: "invalid" };
 
-      const { user, created } = yield* this.#upsertEmailUserEffect(challenge.email, input.now);
+      const account = yield* this.#upsertEmailUserEffect(
+        challenge.email,
+        challenge.recipient_email ?? challenge.email,
+        input.now,
+      );
+      if (!account) return { status: "recipient_conflict" };
+      const { user, created } = account;
       const tokenHash = yield* sha256(input.session.token).pipe(
         Effect.mapError(() => new AuthStoreError({ message: "Account store operation failed." })),
       );
@@ -1081,13 +1106,21 @@ export class D1AuthRepository implements AuthRepository {
   readonly #upsertEmailUserEffect = Effect.fn("D1AuthRepository.upsertEmailUser")(function* (
     this: D1AuthRepository,
     email: string,
+    recipientEmail: string,
     now: number,
-  ): Effect.fn.Return<{ user: AuthUser; created: boolean }, AuthStoreError, AuthDatabase> {
+  ): Effect.fn.Return<{ user: AuthUser; created: boolean } | null, AuthStoreError, AuthDatabase> {
     const database = yield* AuthDatabase;
     const existing = yield* storeCall(() =>
-      database.prepare("SELECT id, email, name, avatar_url FROM users WHERE email = ?").bind(email).first<UserRow>(),
+      database
+        .prepare("SELECT id, identity_key, email, name, avatar_url FROM users WHERE email = ?")
+        .bind(email)
+        .first<UserRow & { identity_key: string }>(),
     );
-    if (existing) return { user: mapUser(existing), created: false };
+    if (existing) {
+      return recipientMatchesUser(existing.identity_key, email, recipientEmail)
+        ? { user: mapUser(existing), created: false }
+        : null;
+    }
     const id = crypto.randomUUID();
     yield* storeCall(() =>
       database
@@ -1096,7 +1129,7 @@ export class D1AuthRepository implements AuthRepository {
           id, identity_key, email, name, avatar_url, created_at, updated_at
         ) VALUES (?, ?, ?, NULL, NULL, ?, ?)`,
         )
-        .bind(id, `email:${email}`, email, now, now)
+        .bind(id, emailRecipientIdentityKey(recipientEmail), email, now, now)
         .run(),
     );
     return { user: { id, email, name: null, avatarUrl: null }, created: true };
@@ -1152,6 +1185,17 @@ const hostBindingMatches = Effect.fn("D1AuthRepository.hostBindingMatches")(func
 
 function storeHash(value: string): Effect.Effect<string, AuthStoreError> {
   return sha256(value).pipe(Effect.mapError(() => new AuthStoreError({ message: "Account store operation failed." })));
+}
+
+function emailRecipientIdentityKey(recipientEmail: string): string {
+  const at = recipientEmail.lastIndexOf("@");
+  // Domain case is interchangeable; a mailbox local part may be case-sensitive.
+  return `email:${recipientEmail.slice(0, at)}@${recipientEmail.slice(at + 1).toLowerCase()}`;
+}
+
+function recipientMatchesUser(identityKey: string, email: string, recipientEmail: string): boolean {
+  const recipientKey = emailRecipientIdentityKey(recipientEmail);
+  return identityKey.startsWith("email:") ? identityKey === recipientKey : recipientKey === `email:${email}`;
 }
 
 function mapUser(row: UserRow): AuthUser {

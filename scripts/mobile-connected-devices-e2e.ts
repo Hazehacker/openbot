@@ -109,6 +109,98 @@ try {
     decrypt: (value) => value.toString(),
   });
   try {
+    const targetUserId = randomUUID();
+    const now = Date.now();
+    database
+      .prepare("INSERT INTO users(id, identity_key, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+      .run(targetUserId, "email:target@example.com", "target@example.com", now, now);
+    const caseVariant = await fetch(`${apiUrl}/v1/auth/email/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "Target@example.com" }),
+    });
+    const variantBody = await caseVariant.json();
+    if (caseVariant.ok) {
+      const verified = await fetch(`${apiUrl}/v1/auth/email/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          challengeId: stringField(variantBody, "challengeId"),
+          code: stringField(variantBody, "developmentCode"),
+        }),
+      });
+      const verifiedBody = await verified.json();
+      check(
+        "a case-distinct mailbox cannot sign in to the canonical account",
+        verified.status !== 200 ||
+          stringField(isDynamicRecord(verifiedBody) ? verifiedBody.user : null, "id") !== targetUserId,
+      );
+    } else {
+      check(
+        "a case-distinct mailbox cannot sign in to the canonical account",
+        caseVariant.status === 409 && errorCodeOf(variantBody) === "email_recipient_conflict",
+        { status: caseVariant.status, code: errorCodeOf(variantBody) },
+      );
+    }
+
+    const raceChallenge = await fetch(`${apiUrl}/v1/auth/email/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "Race@example.com" }),
+    });
+    const raceBody = await raceChallenge.json();
+    if (raceChallenge.status !== 200) throw new Error("The race challenge did not start.");
+    database
+      .prepare("INSERT INTO users(id, identity_key, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomUUID(), "email:race@example.com", "race@example.com", now, now);
+    const raceVerify = await fetch(`${apiUrl}/v1/auth/email/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challengeId: stringField(raceBody, "challengeId"),
+        code: stringField(raceBody, "developmentCode"),
+      }),
+    });
+    check(
+      "a concurrent account claim cannot turn the code into another user's session",
+      raceVerify.status === 409 && errorCodeOf(await raceVerify.json()) === "email_recipient_conflict",
+      raceVerify.status,
+    );
+
+    const requestedEmails: string[] = [];
+    let dropFirstResponse = true;
+    const retryDesktop = new CentralAuthManager({
+      apiUrl,
+      storagePath: join(root, "retry-session.bin"),
+      encrypt: (value) => Buffer.from(value),
+      decrypt: (value) => value.toString(),
+      fetch: async (input, init) => {
+        if (new URL(input instanceof Request ? input.url : input).pathname === "/v1/auth/email/start") {
+          const body = isString(init?.body) ? JSON.parse(init.body) : null;
+          requestedEmails.push(stringField(body, "email"));
+          const response = await fetch(input, init);
+          if (dropFirstResponse) {
+            dropFirstResponse = false;
+            throw new TypeError("Simulated lost email response.");
+          }
+          return response;
+        }
+        return fetch(input, init);
+      },
+    });
+    try {
+      await runCauseEffect(retryDesktop.initialize());
+      await runCauseEffect(retryDesktop.requestEmailCode("lower@example.com"));
+      const retried = await runCauseEffect(retryDesktop.requestEmailCode("Lower@example.com"));
+      check(
+        "a case-only edit does not replay the previous recipient",
+        requestedEmails[1] === "Lower@example.com" && retried.status !== "code_sent",
+        { requestedEmails, status: retried.status },
+      );
+    } finally {
+      await runCauseEffect(retryDesktop.dispose());
+    }
+
     await runCauseEffect(desktop.initialize());
     const sent = await runCauseEffect(desktop.requestEmailCode("Owner@example.com"));
     if (sent.status !== "code_sent" || !sent.developmentCode) throw new Error("The desktop got no sign-in code.");
@@ -122,6 +214,23 @@ try {
     if (signedIn.status !== "signed_in") throw new Error("The desktop did not sign in.");
     check("account identity stays canonical", signedIn.user.email === "owner@example.com", signedIn.user.email);
     const userId = signedIn.user.id;
+    const identityKey = database.prepare("SELECT identity_key FROM users WHERE id = ?").get(userId)?.identity_key;
+    check(
+      "the verified recipient remains bound to the account",
+      identityKey === "email:Owner@example.com",
+      identityKey,
+    );
+    database.prepare("UPDATE email_login_challenges SET created_at = 0 WHERE email = ?").run("owner@example.com");
+    const otherMailbox = await fetch(`${apiUrl}/v1/auth/email/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "owner@example.com" }),
+    });
+    check(
+      "the other case cannot sign in to the newly created account",
+      otherMailbox.status === 409 && errorCodeOf(await otherMailbox.json()) === "email_recipient_conflict",
+      otherMailbox.status,
+    );
 
     // The joined server is in the account directory. The local computer has a host identity, but it is
     // not published, so the phone cannot open it.

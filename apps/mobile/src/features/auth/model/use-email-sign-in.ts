@@ -131,7 +131,7 @@ export function useEmailSignIn({
       kind === "send" &&
       !needsNewCode &&
       challenge &&
-      normalizeEmailAddress(challenge.email) === normalizedEmail &&
+      challenge.email === email.trim() &&
       Date.now() < challenge.resendAt
     ) {
       go("code");
