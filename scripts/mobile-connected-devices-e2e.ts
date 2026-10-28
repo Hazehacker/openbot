@@ -120,28 +120,11 @@ try {
       body: JSON.stringify({ email: "Target@example.com" }),
     });
     const variantBody = await caseVariant.json();
-    if (caseVariant.ok) {
-      const verified = await fetch(`${apiUrl}/v1/auth/email/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          challengeId: stringField(variantBody, "challengeId"),
-          code: stringField(variantBody, "developmentCode"),
-        }),
-      });
-      const verifiedBody = await verified.json();
-      check(
-        "a case-distinct mailbox cannot sign in to the canonical account",
-        verified.status !== 200 ||
-          stringField(isDynamicRecord(verifiedBody) ? verifiedBody.user : null, "id") !== targetUserId,
-      );
-    } else {
-      check(
-        "a case-distinct mailbox cannot sign in to the canonical account",
-        caseVariant.status === 409 && errorCodeOf(variantBody) === "email_recipient_conflict",
-        { status: caseVariant.status, code: errorCodeOf(variantBody) },
-      );
-    }
+    check(
+      "a case-distinct mailbox cannot sign in to the canonical account",
+      caseVariant.status === 409 && errorCodeOf(variantBody) === "email_recipient_conflict",
+      { status: caseVariant.status, code: errorCodeOf(variantBody) },
+    );
 
     const raceChallenge = await fetch(`${apiUrl}/v1/auth/email/start`, {
       method: "POST",

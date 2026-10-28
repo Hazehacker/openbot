@@ -1188,9 +1188,9 @@ function storeHash(value: string): Effect.Effect<string, AuthStoreError> {
 }
 
 function emailRecipientIdentityKey(recipientEmail: string): string {
-  const at = recipientEmail.lastIndexOf("@");
+  const atIndex = recipientEmail.lastIndexOf("@");
   // Domain case is interchangeable; a mailbox local part may be case-sensitive.
-  return `email:${recipientEmail.slice(0, at)}@${recipientEmail.slice(at + 1).toLowerCase()}`;
+  return `email:${recipientEmail.slice(0, atIndex)}@${recipientEmail.slice(atIndex + 1).toLowerCase()}`;
 }
 
 function recipientMatchesUser(identityKey: string, email: string, recipientEmail: string): boolean {
