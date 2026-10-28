@@ -175,8 +175,11 @@ export class AuthService {
         return yield* this.#replayEmailSignIn(existing, email, challengeId, now);
       }
       const delivery = dependencies.delivery;
+      // Keep the canonical email for account identity, but preserve the recipient's local-part case.
       const deliveryResult = yield* Effect.result(
-        delivery ? delivery.send({ email, code, expiresAt }).pipe(Effect.mapError(safeDeliveryError)) : Effect.void,
+        delivery
+          ? delivery.send({ email: emailInput.trim(), code, expiresAt }).pipe(Effect.mapError(safeDeliveryError))
+          : Effect.void,
       );
       if (Result.isFailure(deliveryResult)) {
         const deliveryError = deliveryResult.failure;

@@ -1393,14 +1393,15 @@ export class CentralAuthManager extends EventEmitter<CentralAuthEvents> {
 
   readonly requestEmailCode = Effect.fn("CentralAuth.requestEmailCode")(
     function* (this: CentralAuthManager, email: string) {
-      const normalizedEmail = email.trim().toLowerCase();
+      const address = email.trim();
+      const normalizedEmail = address.toLowerCase();
       const existingRequest = this.#emailCodeRequest;
-      if (existingRequest?.email === normalizedEmail && existingRequest.pending)
+      if (existingRequest?.email.toLowerCase() === normalizedEmail && existingRequest.pending)
         return yield* Deferred.await(existingRequest.pending);
       const request: EmailCodeRequest =
-        existingRequest?.email === normalizedEmail
+        existingRequest?.email.toLowerCase() === normalizedEmail
           ? existingRequest
-          : { email: normalizedEmail, idempotencyKey: randomUUID(), pending: null };
+          : { email: address, idempotencyKey: randomUUID(), pending: null };
       this.#emailCodeRequest = request;
       const pending = Deferred.makeUnsafe<CentralAuthState, CentralAuthOperationError>();
       request.pending = pending;

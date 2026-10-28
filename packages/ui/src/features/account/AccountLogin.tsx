@@ -276,15 +276,14 @@ export function AccountLogin(props: AccountLoginProps) {
       emailInput?.focus();
       return;
     }
-    const normalizedEmail = normalizeEmailAddress(email());
-    if (!normalizedEmail) return;
+    const address = email().trim();
     const action: PendingAction = emailDeliveryUncertain() ? "check" : "send";
-    setEmail(normalizedEmail);
+    setEmail(address);
     setIssueVisible(false);
     setLocalError(null);
     setPendingAction(action);
     try {
-      await props.onRequestEmailCode(normalizedEmail);
+      await props.onRequestEmailCode(address);
     } catch (error) {
       showActionError(error, t("account.login.sendFailed"), true);
     } finally {

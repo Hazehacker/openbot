@@ -120,14 +120,20 @@ export function useEmailSignIn({
   async function requestCode(kind: "send" | "resend") {
     if (pending) return;
     if (kind === "send" && retryIn > 0) return;
-    const address = normalizeEmailAddress(email);
-    if (!address) {
+    const normalizedEmail = normalizeEmailAddress(email);
+    if (!normalizedEmail) {
       setEmailIssue({ message: t("mobile.auth.email.error.invalidEmail"), code: "invalid_email" });
       reject();
       return;
     }
     // Back on the email step, the same address keeps the code that is already on its way.
-    if (kind === "send" && !needsNewCode && challenge?.email === address && Date.now() < challenge.resendAt) {
+    if (
+      kind === "send" &&
+      !needsNewCode &&
+      challenge &&
+      normalizeEmailAddress(challenge.email) === normalizedEmail &&
+      Date.now() < challenge.resendAt
+    ) {
       go("code");
       return;
     }
@@ -138,7 +144,7 @@ export function useEmailSignIn({
     const scope = mobileAnalytics.scope();
     const started = performance.now();
     try {
-      const next = await startMobileEmailSignIn(address, requestId.current);
+      const next = await startMobileEmailSignIn(email.trim(), requestId.current);
       scope.track("account_sign_in_started", {
         method: "email",
         result: "code_sent",

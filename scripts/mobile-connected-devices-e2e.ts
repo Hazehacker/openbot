@@ -110,10 +110,17 @@ try {
   });
   try {
     await runCauseEffect(desktop.initialize());
-    const sent = await runCauseEffect(desktop.requestEmailCode("owner@example.com"));
+    const sent = await runCauseEffect(desktop.requestEmailCode("Owner@example.com"));
     if (sent.status !== "code_sent" || !sent.developmentCode) throw new Error("The desktop got no sign-in code.");
+    check("the code page keeps the entered email case", sent.email === "Owner@example.com", sent.email);
+    const delivered = await fetch(`${apiUrl}/test/last-delivered-email`);
+    check(
+      "the code is delivered to the entered email case",
+      stringField(await delivered.json(), "email") === "Owner@example.com",
+    );
     const signedIn = await runCauseEffect(desktop.verifyEmailCode(sent.challengeId, sent.developmentCode));
     if (signedIn.status !== "signed_in") throw new Error("The desktop did not sign in.");
+    check("account identity stays canonical", signedIn.user.email === "owner@example.com", signedIn.user.email);
     const userId = signedIn.user.id;
 
     // The joined server is in the account directory. The local computer has a host identity, but it is

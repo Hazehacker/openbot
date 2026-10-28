@@ -142,8 +142,9 @@ export class MobileEmailSignInError extends Error {
 /** Sends a sign-in code. Use the same `requestId` again to check the delivery of the same code. */
 export async function startMobileEmailSignIn(email: string, requestId: string): Promise<MobileEmailChallenge> {
   const text = currentText();
-  const address = normalizeEmailAddress(email);
-  if (!address) throw new MobileEmailSignInError(text.t("mobile.auth.email.error.invalidEmail"), "invalid_email");
+  const address = email.trim();
+  if (!normalizeEmailAddress(address))
+    throw new MobileEmailSignInError(text.t("mobile.auth.email.error.invalidEmail"), "invalid_email");
   const { response, body } = await mobileEmailRequest(
     "/v1/auth/email/start",
     { email: address },

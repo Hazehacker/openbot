@@ -17,9 +17,15 @@ const databasePath = process.argv[2];
 if (!databasePath) throw new Error("Pass the database path.");
 const database = new DatabaseSync(databasePath);
 database.exec("PRAGMA foreign_keys = ON");
+let lastDeliveredEmail = "";
 const service = new AuthService({
   repository: new D1AuthRepository(sqliteD1(database)),
-  delivery: null,
+  delivery: {
+    send: ({ email }) =>
+      Effect.sync(() => {
+        lastDeliveredEmail = email;
+      }),
+  },
   exposeDevelopmentCode: true,
 });
 
@@ -57,6 +63,7 @@ function route(request: IncomingMessage, body: DynamicRecord) {
   const key = `${request.method} ${url.pathname}`;
   return Effect.gen(function* (): Effect.fn.Return<Answer, unknown> {
     if (key === "GET /health/live") return { status: 200, body: { status: "ok" } };
+    if (key === "GET /test/last-delivered-email") return { status: 200, body: { email: lastDeliveredEmail } };
     if (key === "POST /v1/auth/email/start") {
       if (!isString(body.email)) return failure(400, "invalid_email", "Enter a valid email address.");
       const idempotencyKey = request.headers["idempotency-key"];
