@@ -418,7 +418,7 @@ const Settings = createSimpleContext({
         openAppSettings(event.target instanceof HTMLElement ? event.target : null);
       };
       window.addEventListener("keydown", handleSettingsShortcut);
-      const unsubscribe = settingsPort().onOpenSettings(() => openAppSettings());
+      const unsubscribe = settingsPort().onOpenSettings((tab) => openAppSettings(null, tab));
       // A remote owner or admin can change an agent's grant from a phone or the web client.
       const unsubscribeApprovals = settingsPort().onApprovalAutomation(setApprovalAutomation);
       // An admin of a joined server can change how many memories each agent of this computer keeps.

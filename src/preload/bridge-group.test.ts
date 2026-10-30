@@ -118,6 +118,20 @@ it("decodes an event and stops at unsubscribe", () => {
   expect(listener).toHaveBeenCalledTimes(1);
 });
 
+it("opens the requested settings tab through the public bridge", () => {
+  const channel = IPC_ENDPOINTS.app.openSettings.channel;
+  const listener = vi.fn();
+  const stop = api().onOpenSettings(listener);
+
+  send(channel, undefined);
+  send(channel, "updates");
+  expect(listener.mock.calls).toEqual([[undefined], ["updates"]]);
+  expect(() => send(channel, "general")).toThrow("Invalid settings tab request.");
+  expect(listener).toHaveBeenCalledTimes(2);
+
+  stop();
+});
+
 // The slug began in a URL a web page chose. A bad one is dropped, as the guard before it did,
 // rather than thrown into the listener of a window that did nothing wrong.
 it("drops a deep-link event that does not decode", () => {

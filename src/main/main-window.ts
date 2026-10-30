@@ -805,7 +805,11 @@ export function configureApplicationMenu(
           { type: "separator" },
           {
             label: translate("menu.checkForUpdates"),
-            click: () => {
+            click: (_item, focusedWindow) => {
+              const candidate = focusedWindow ?? BrowserWindow.getFocusedWindow();
+              if (candidate instanceof BrowserWindow) {
+                sendToRenderer(candidate, IPC_ENDPOINTS.app.openSettings, "updates");
+              }
               Effect.runFork(updater.checkForUpdates());
             },
           },
@@ -816,7 +820,7 @@ export function configureApplicationMenu(
             click: (_item, focusedWindow) => {
               const candidate = focusedWindow ?? BrowserWindow.getFocusedWindow();
               if (!(candidate instanceof BrowserWindow)) return;
-              sendToRenderer(candidate, IPC_ENDPOINTS.app.openSettings);
+              sendToRenderer(candidate, IPC_ENDPOINTS.app.openSettings, undefined);
             },
           },
           { type: "separator" },

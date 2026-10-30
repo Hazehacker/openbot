@@ -672,7 +672,7 @@ export const IPC_ENDPOINTS = {
     // The native Preferences menu item and its shortcut live in main, while the dialog lives in
     // the renderer, so the menu click is broadcast rather than handled: every window opens its
     // own Settings.
-    openSettings: event<undefined>()("app:open-settings"),
+    openSettings: event<"updates" | undefined>()("app:open-settings"),
     openExternal: request<ExternalDestination, void>()("app:open-external"),
     openUrl: request<string, void>()("app:open-url"),
     getExternalLinkPreference: request<undefined, ExternalLinkPreference>()("app:get-external-link-preference"),

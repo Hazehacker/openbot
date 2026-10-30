@@ -791,6 +791,7 @@ function AppSettings(props: AccountProps) {
     appSettingsOpen,
     setAppSettingsOpen,
     appSettingsTab,
+    appSettingsOpenRequest,
     hostedServerDeleteRequest,
     generalSettings,
     builtInDisplayGeometry,
@@ -855,6 +856,7 @@ function AppSettings(props: AccountProps) {
         onOpenNotificationSettings={openNotificationSettings}
         restoreFocusTarget={appSettingsRestoreTarget()}
         openTab={appSettingsTab()}
+        openRequest={appSettingsOpenRequest()}
         hostedServerDeleteRequest={hostedServerDeleteRequest()}
       />
     </Loading>

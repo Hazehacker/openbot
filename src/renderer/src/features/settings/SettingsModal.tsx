@@ -109,6 +109,8 @@ export interface SettingsModalProps {
   initialTab?: SettingsTab | undefined;
   /** The tab shown each time the modal opens. Without it, the modal shows the tab that was open last. */
   openTab?: SettingsTab | undefined;
+  /** Increments for every request, including while the settings page is already open. */
+  openRequest?: number;
   /** Where the settings page shows, or nothing while the page is not on screen. */
   page: SettingsPagePlacement | undefined;
 }
@@ -163,9 +165,9 @@ export function SettingsModal(props: SettingsModalProps) {
   createEffect(
     () => {
       const tab = props.open ? props.openTab : undefined;
-      return tab === "hosted-servers" ? "billing" : tab;
+      return { tab: tab === "hosted-servers" ? "billing" : tab, request: props.openRequest };
     },
-    (tab) => {
+    ({ tab }) => {
       if (!tab) return;
       setActiveTab(tab);
       agents.showList();

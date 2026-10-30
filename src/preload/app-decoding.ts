@@ -501,6 +501,12 @@ export function decodeAgentImportSkill(value: unknown): string {
 
 export const decodeVoid = emptyDecoder("IPC returned unexpected data.");
 
+export function decodeOpenSettingsTab(value: unknown): "updates" | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value === "updates") return value;
+  throw new Error("Invalid settings tab request.");
+}
+
 export function decodeHostedSite(value: unknown): HostedSiteSummary {
   const site = parseHostedSiteSummary(value);
   if (!site) throw new Error("Invalid hosted site response.");
